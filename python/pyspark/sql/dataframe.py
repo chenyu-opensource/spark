@@ -597,8 +597,7 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         level : int, optional, default None
             How many levels to print for nested schemas.
 
-            .. versionchanged:: 3.5.0
-                Added Level parameter.
+            .. versionadded:: 3.5.0
 
         Examples
         --------
@@ -1763,9 +1762,27 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
 
         Examples
         --------
-        >>> df = spark.range(10)
-        >>> df.coalesce(1).rdd.getNumPartitions()
-        1
+        >>> from pyspark.sql import functions as sf
+        >>> spark.range(0, 10, 1, 3).select(
+        ...     sf.spark_partition_id().alias("partition")
+        ... ).distinct().sort("partition").show()
+        +---------+
+        |partition|
+        +---------+
+        |        0|
+        |        1|
+        |        2|
+        +---------+
+
+        >>> from pyspark.sql import functions as sf
+        >>> spark.range(0, 10, 1, 3).coalesce(1).select(
+        ...     sf.spark_partition_id().alias("partition")
+        ... ).distinct().sort("partition").show()
+        +---------+
+        |partition|
+        +---------+
+        |        0|
+        +---------+
         """
         return DataFrame(self._jdf.coalesce(numPartitions), self.sparkSession)
 
@@ -1809,23 +1826,78 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
 
         Examples
         --------
-        >>> df = spark.createDataFrame(
-        ...     [(14, "Tom"), (23, "Alice"), (16, "Bob")], ["age", "name"])
+        >>> from pyspark.sql import functions as sf
+        >>> df = spark.range(0, 64, 1, 9).withColumn(
+        ...     "name", sf.concat(sf.lit("name_"), sf.col("id").cast("string"))
+        ... ).withColumn(
+        ...     "age", sf.col("id") - 32
+        ... )
+        >>> df.select(
+        ...     sf.spark_partition_id().alias("partition")
+        ... ).distinct().sort("partition").show()
+        +---------+
+        |partition|
+        +---------+
+        |        0|
+        |        1|
+        |        2|
+        |        3|
+        |        4|
+        |        5|
+        |        6|
+        |        7|
+        |        8|
+        +---------+
 
         Repartition the data into 10 partitions.
 
-        >>> df.repartition(10).rdd.getNumPartitions()
-        10
+        >>> df.repartition(10).select(
+        ...     sf.spark_partition_id().alias("partition")
+        ... ).distinct().sort("partition").show()
+        +---------+
+        |partition|
+        +---------+
+        |        0|
+        |        1|
+        |        2|
+        |        3|
+        |        4|
+        |        5|
+        |        6|
+        |        7|
+        |        8|
+        |        9|
+        +---------+
 
         Repartition the data into 7 partitions by 'age' column.
 
-        >>> df.repartition(7, "age").rdd.getNumPartitions()
-        7
+        >>> df.repartition(7, "age").select(
+        ...     sf.spark_partition_id().alias("partition")
+        ... ).distinct().sort("partition").show()
+        +---------+
+        |partition|
+        +---------+
+        |        0|
+        |        1|
+        |        2|
+        |        3|
+        |        4|
+        |        5|
+        |        6|
+        +---------+
 
         Repartition the data into 7 partitions by 'age' and 'name columns.
 
-        >>> df.repartition(3, "name", "age").rdd.getNumPartitions()
-        3
+        >>> df.repartition(3, "name", "age").select(
+        ...     sf.spark_partition_id().alias("partition")
+        ... ).distinct().sort("partition").show()
+        +---------+
+        |partition|
+        +---------+
+        |        0|
+        |        1|
+        |        2|
+        +---------+
         """
         if isinstance(numPartitions, int):
             if len(cols) == 0:
@@ -1893,15 +1965,23 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
 
         Examples
         --------
-        >>> df = spark.createDataFrame(
-        ...     [(14, "Tom"), (23, "Alice"), (16, "Bob")], ["age", "name"])
-
         Repartition the data into 2 partitions by range in 'age' column.
-        For example, the first partition can have ``(14, "Tom")``, and the second
-        partition would have ``(16, "Bob")`` and ``(23, "Alice")``.
+        For example, the first partition can have ``(14, "Tom")`` and ``(16, "Bob")``,
+        and the second partition would have ``(23, "Alice")``.
 
-        >>> df.repartitionByRange(2, "age").rdd.getNumPartitions()
-        2
+        >>> from pyspark.sql import functions as sf
+        >>> spark.createDataFrame(
+        ...     [(14, "Tom"), (23, "Alice"), (16, "Bob")], ["age", "name"]
+        ... ).repartitionByRange(2, "age").select(
+        ...     "age", "name", sf.spark_partition_id()
+        ... ).show()
+        +---+-----+--------------------+
+        |age| name|SPARK_PARTITION_ID()|
+        +---+-----+--------------------+
+        | 14|  Tom|                   0|
+        | 16|  Bob|                   0|
+        | 23|Alice|                   1|
+        +---+-----+--------------------+
         """
         if isinstance(numPartitions, int):
             if len(cols) == 0:
@@ -2772,7 +2852,9 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         return DataFrame(jdf, self.sparkSession)
 
     def sortWithinPartitions(
-        self, *cols: Union[str, Column, List[Union[str, Column]]], **kwargs: Any
+        self,
+        *cols: Union[int, str, Column, List[Union[int, str, Column]]],
+        **kwargs: Any,
     ) -> "DataFrame":
         """Returns a new :class:`DataFrame` with each partition sorted by the specified column(s).
 
@@ -2783,8 +2865,11 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
 
         Parameters
         ----------
-        cols : str, list or :class:`Column`, optional
-            list of :class:`Column` or column names to sort by.
+        cols : int, str, list or :class:`Column`, optional
+            list of :class:`Column` or column names or column ordinals to sort by.
+
+            .. versionchanged:: 4.0.0
+               Supports column ordinal.
 
         Other Parameters
         ----------------
@@ -2798,17 +2883,42 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         :class:`DataFrame`
             DataFrame sorted by partitions.
 
+        Notes
+        -----
+        A column ordinal starts from 1, which is different from the
+        0-based :meth:`__getitem__`.
+        If a column ordinal is negative, it means sort descending.
+
         Examples
         --------
+        >>> from pyspark.sql import functions as sf
         >>> df = spark.createDataFrame([(2, "Alice"), (5, "Bob")], schema=["age", "name"])
         >>> df.sortWithinPartitions("age", ascending=False)
         DataFrame[age: bigint, name: string]
+
+        >>> df.coalesce(1).sortWithinPartitions(1).show()
+        +---+-----+
+        |age| name|
+        +---+-----+
+        |  2|Alice|
+        |  5|  Bob|
+        +---+-----+
+
+        >>> df.coalesce(1).sortWithinPartitions(-1).show()
+        +---+-----+
+        |age| name|
+        +---+-----+
+        |  5|  Bob|
+        |  2|Alice|
+        +---+-----+
         """
         jdf = self._jdf.sortWithinPartitions(self._sort_cols(cols, kwargs))
         return DataFrame(jdf, self.sparkSession)
 
     def sort(
-        self, *cols: Union[str, Column, List[Union[str, Column]]], **kwargs: Any
+        self,
+        *cols: Union[int, str, Column, List[Union[int, str, Column]]],
+        **kwargs: Any,
     ) -> "DataFrame":
         """Returns a new :class:`DataFrame` sorted by the specified column(s).
 
@@ -2819,8 +2929,11 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
 
         Parameters
         ----------
-        cols : str, list, or :class:`Column`, optional
-             list of :class:`Column` or column names to sort by.
+        cols : int, str, list, or :class:`Column`, optional
+             list of :class:`Column` or column names or column ordinals to sort by.
+
+            .. versionchanged:: 4.0.0
+               Supports column ordinal.
 
         Other Parameters
         ----------------
@@ -2834,15 +2947,29 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         :class:`DataFrame`
             Sorted DataFrame.
 
+        Notes
+        -----
+        A column ordinal starts from 1, which is different from the
+        0-based :meth:`__getitem__`.
+        If a column ordinal is negative, it means sort descending.
+
         Examples
         --------
-        >>> from pyspark.sql.functions import desc, asc
+        >>> from pyspark.sql import functions as sf
         >>> df = spark.createDataFrame([
         ...     (2, "Alice"), (5, "Bob")], schema=["age", "name"])
 
         Sort the DataFrame in ascending order.
 
-        >>> df.sort(asc("age")).show()
+        >>> df.sort(sf.asc("age")).show()
+        +---+-----+
+        |age| name|
+        +---+-----+
+        |  2|Alice|
+        |  5|  Bob|
+        +---+-----+
+
+        >>> df.sort(1).show()
         +---+-----+
         |age| name|
         +---+-----+
@@ -2859,6 +2986,7 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         |  5|  Bob|
         |  2|Alice|
         +---+-----+
+
         >>> df.orderBy(df.age.desc()).show()
         +---+-----+
         |age| name|
@@ -2866,7 +2994,16 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         |  5|  Bob|
         |  2|Alice|
         +---+-----+
+
         >>> df.sort("age", ascending=False).show()
+        +---+-----+
+        |age| name|
+        +---+-----+
+        |  5|  Bob|
+        |  2|Alice|
+        +---+-----+
+
+        >>> df.sort(-1).show()
         +---+-----+
         |age| name|
         +---+-----+
@@ -2876,9 +3013,28 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
 
         Specify multiple columns
 
+        >>> from pyspark.sql import functions as sf
         >>> df = spark.createDataFrame([
         ...     (2, "Alice"), (2, "Bob"), (5, "Bob")], schema=["age", "name"])
-        >>> df.orderBy(desc("age"), "name").show()
+        >>> df.orderBy(sf.desc("age"), "name").show()
+        +---+-----+
+        |age| name|
+        +---+-----+
+        |  5|  Bob|
+        |  2|Alice|
+        |  2|  Bob|
+        +---+-----+
+
+        >>> df.orderBy(-1, "name").show()
+        +---+-----+
+        |age| name|
+        +---+-----+
+        |  5|  Bob|
+        |  2|Alice|
+        |  2|  Bob|
+        +---+-----+
+
+        >>> df.orderBy(-1, 2).show()
         +---+-----+
         |age| name|
         +---+-----+
@@ -2890,6 +3046,24 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         Specify multiple columns for sorting order at `ascending`.
 
         >>> df.orderBy(["age", "name"], ascending=[False, False]).show()
+        +---+-----+
+        |age| name|
+        +---+-----+
+        |  5|  Bob|
+        |  2|  Bob|
+        |  2|Alice|
+        +---+-----+
+
+        >>> df.orderBy([1, "name"], ascending=[False, False]).show()
+        +---+-----+
+        |age| name|
+        +---+-----+
+        |  5|  Bob|
+        |  2|  Bob|
+        |  2|Alice|
+        +---+-----+
+
+        >>> df.orderBy([1, 2], ascending=[False, False]).show()
         +---+-----+
         |age| name|
         +---+-----+
@@ -2945,7 +3119,9 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         return self._jseq(_cols, _to_java_column)
 
     def _sort_cols(
-        self, cols: Sequence[Union[str, Column, List[Union[str, Column]]]], kwargs: Dict[str, Any]
+        self,
+        cols: Sequence[Union[int, str, Column, List[Union[int, str, Column]]]],
+        kwargs: Dict[str, Any],
     ) -> JavaObject:
         """Return a JVM Seq of Columns that describes the sort order"""
         if not cols:
@@ -2955,7 +3131,23 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
             )
         if len(cols) == 1 and isinstance(cols[0], list):
             cols = cols[0]
-        jcols = [_to_java_column(cast("ColumnOrName", c)) for c in cols]
+
+        jcols = []
+        for c in cols:
+            if isinstance(c, int) and not isinstance(c, bool):
+                # TODO: should introduce dedicated error class
+                # ordinal is 1-based
+                if c > 0:
+                    _c = self[c - 1]
+                # negative ordinal means sort by desc
+                elif c < 0:
+                    _c = self[-c - 1].desc()
+                else:
+                    raise IndexError("Column ordinal must not be zero!")
+            else:
+                _c = c  # type: ignore[assignment]
+            jcols.append(_to_java_column(cast("ColumnOrName", _c)))
+
         ascending = kwargs.get("ascending", True)
         if isinstance(ascending, (bool, int)):
             if not ascending:
@@ -3621,9 +3813,10 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         ...
 
     def groupBy(self, *cols: "ColumnOrNameOrOrdinal") -> "GroupedData":  # type: ignore[misc]
-        """Groups the :class:`DataFrame` using the specified columns,
-        so we can run aggregation on them. See :class:`GroupedData`
-        for all the available aggregate functions.
+        """
+        Groups the :class:`DataFrame` by the specified columns so that aggregation
+        can be performed on them.
+        See :class:`GroupedData` for all the available aggregate functions.
 
         :func:`groupby` is an alias for :func:`groupBy`.
 
@@ -3632,20 +3825,20 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         .. versionchanged:: 3.4.0
             Supports Spark Connect.
 
-        .. versionchanged:: 4.0.0
-            Supports column ordinal.
-
         Parameters
         ----------
-        cols : list, str or :class:`Column`
-            columns to group by.
-            Each element should be a column name (string) or an expression (:class:`Column`)
+        cols : list, str, int or :class:`Column`
+            The columns to group by.
+            Each element can be a column name (string) or an expression (:class:`Column`)
             or a column ordinal (int, 1-based) or list of them.
+
+            .. versionchanged:: 4.0.0
+               Supports column ordinal.
 
         Returns
         -------
         :class:`GroupedData`
-            Grouped data by given columns.
+            A :class:`GroupedData` object representing the grouped data by the specified columns.
 
         Notes
         -----
@@ -3655,9 +3848,9 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         Examples
         --------
         >>> df = spark.createDataFrame([
-        ...     (2, "Alice"), (2, "Bob"), (2, "Bob"), (5, "Bob")], schema=["age", "name"])
+        ...     ("Alice", 2), ("Bob", 2), ("Bob", 2), ("Bob", 5)], schema=["name", "age"])
 
-        Empty grouping columns triggers a global aggregation.
+        Example 1: Empty grouping columns triggers a global aggregation.
 
         >>> df.groupBy().avg().show()
         +--------+
@@ -3666,7 +3859,7 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         |    2.75|
         +--------+
 
-        Group-by 'name', and specify a dictionary to calculate the summation of 'age'.
+        Example 2: Group-by 'name', and specify a dictionary to calculate the summation of 'age'.
 
         >>> df.groupBy("name").agg({"age": "sum"}).sort("name").show()
         +-----+--------+
@@ -3676,7 +3869,7 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         |  Bob|       9|
         +-----+--------+
 
-        Group-by 'name', and calculate maximum values.
+        Example 3: Group-by 'name', and calculate maximum values.
 
         >>> df.groupBy(df.name).max().sort("name").show()
         +-----+--------+
@@ -3686,9 +3879,9 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         |  Bob|       5|
         +-----+--------+
 
-        Also group-by 'name', but using the column ordinal.
+        Example 4: Also group-by 'name', but using the column ordinal.
 
-        >>> df.groupBy(2).max().sort("name").show()
+        >>> df.groupBy(1).max().sort("name").show()
         +-----+--------+
         | name|max(age)|
         +-----+--------+
@@ -3696,7 +3889,7 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         |  Bob|       5|
         +-----+--------+
 
-        Group-by 'name' and 'age', and calculate the number of rows in each group.
+        Example 5: Group-by 'name' and 'age', and calculate the number of rows in each group.
 
         >>> df.groupBy(["name", df.age]).count().sort("name", "age").show()
         +-----+---+-----+
@@ -3707,9 +3900,9 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         |  Bob|  5|    1|
         +-----+---+-----+
 
-        Also Group-by 'name' and 'age', but using the column ordinal.
+        Example 6: Also Group-by 'name' and 'age', but using the column ordinal.
 
-        >>> df.groupBy([df.name, 1]).count().sort("name", "age").show()
+        >>> df.groupBy([df.name, 2]).count().sort("name", "age").show()
         +-----+---+-----+
         | name|age|count|
         +-----+---+-----+
@@ -3731,10 +3924,10 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
     def rollup(self, __cols: Union[List[Column], List[str]]) -> "GroupedData":
         ...
 
-    def rollup(self, *cols: "ColumnOrName") -> "GroupedData":  # type: ignore[misc]
+    def rollup(self, *cols: "ColumnOrNameOrOrdinal") -> "GroupedData":  # type: ignore[misc]
         """
         Create a multi-dimensional rollup for the current :class:`DataFrame` using
-        the specified columns, so we can run aggregation on them.
+        the specified columns, allowing for aggregation on them.
 
         .. versionadded:: 1.4.0
 
@@ -3743,19 +3936,42 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
 
         Parameters
         ----------
-        cols : list, str or :class:`Column`
-            Columns to roll-up by.
+        cols : list, str, int or :class:`Column`
+            The columns to roll-up by.
             Each element should be a column name (string) or an expression (:class:`Column`)
-            or list of them.
+            or a column ordinal (int, 1-based) or list of them.
+
+            .. versionchanged:: 4.0.0
+               Supports column ordinal.
 
         Returns
         -------
         :class:`GroupedData`
-            Rolled-up data by given columns.
+            Rolled-up data based on the specified columns.
+
+        Notes
+        -----
+        A column ordinal starts from 1, which is different from the
+        0-based :meth:`__getitem__`.
 
         Examples
         --------
-        >>> df = spark.createDataFrame([(2, "Alice"), (5, "Bob")], schema=["age", "name"])
+        >>> df = spark.createDataFrame([("Alice", 2), ("Bob", 5)], schema=["name", "age"])
+
+        Example 1: Rollup-by 'name', and calculate the number of rows in each dimensional.
+
+        >>> df.rollup("name").count().orderBy("name").show()
+        +-----+-----+
+        | name|count|
+        +-----+-----+
+        | NULL|    2|
+        |Alice|    1|
+        |  Bob|    1|
+        +-----+-----+
+
+        Example 2: Rollup-by 'name' and 'age',
+        and calculate the number of rows in each dimensional.
+
         >>> df.rollup("name", df.age).count().orderBy("name", "age").show()
         +-----+----+-----+
         | name| age|count|
@@ -3766,8 +3982,21 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         |  Bob|NULL|    1|
         |  Bob|   5|    1|
         +-----+----+-----+
+
+        Example 3: Also Rollup-by 'name' and 'age', but using the column ordinal.
+
+        >>> df.rollup(1, 2).count().orderBy(1, 2).show()
+        +-----+----+-----+
+        | name| age|count|
+        +-----+----+-----+
+        | NULL|NULL|    2|
+        |Alice|NULL|    1|
+        |Alice|   2|    1|
+        |  Bob|NULL|    1|
+        |  Bob|   5|    1|
+        +-----+----+-----+
         """
-        jgd = self._jdf.rollup(self._jcols(*cols))
+        jgd = self._jdf.rollup(self._jcols_ordinal(*cols))
         from pyspark.sql.group import GroupedData
 
         return GroupedData(jgd, self)
@@ -3783,7 +4012,7 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
     def cube(self, *cols: "ColumnOrName") -> "GroupedData":  # type: ignore[misc]
         """
         Create a multi-dimensional cube for the current :class:`DataFrame` using
-        the specified columns, so we can run aggregations on them.
+        the specified columns, allowing aggregations to be performed on them.
 
         .. versionadded:: 1.4.0
 
@@ -3792,19 +4021,43 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
 
         Parameters
         ----------
-        cols : list, str or :class:`Column`
-            columns to create cube by.
+        cols : list, str, int or :class:`Column`
+            The columns to cube by.
             Each element should be a column name (string) or an expression (:class:`Column`)
-            or list of them.
+            or a column ordinal (int, 1-based) or list of them.
+
+            .. versionchanged:: 4.0.0
+               Supports column ordinal.
 
         Returns
         -------
         :class:`GroupedData`
-            Cube of the data by given columns.
+            Cube of the data based on the specified columns.
+
+        Notes
+        -----
+        A column ordinal starts from 1, which is different from the
+        0-based :meth:`__getitem__`.
 
         Examples
         --------
-        >>> df = spark.createDataFrame([(2, "Alice"), (5, "Bob")], schema=["age", "name"])
+        >>> df = spark.createDataFrame([("Alice", 2), ("Bob", 5)], schema=["name", "age"])
+
+        Example 1: Creating a cube on 'name',
+        and calculate the number of rows in each dimensional.
+
+        >>> df.cube("name").count().orderBy("name").show()
+        +-----+-----+
+        | name|count|
+        +-----+-----+
+        | NULL|    2|
+        |Alice|    1|
+        |  Bob|    1|
+        +-----+-----+
+
+        Example 2: Creating a cube on 'name' and 'age',
+        and calculate the number of rows in each dimensional.
+
         >>> df.cube("name", df.age).count().orderBy("name", "age").show()
         +-----+----+-----+
         | name| age|count|
@@ -3817,8 +4070,23 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         |  Bob|NULL|    1|
         |  Bob|   5|    1|
         +-----+----+-----+
+
+        Example 3: Also creating a cube on 'name' and 'age', but using the column ordinal.
+
+        >>> df.cube(1, 2).count().orderBy(1, 2).show()
+        +-----+----+-----+
+        | name| age|count|
+        +-----+----+-----+
+        | NULL|NULL|    2|
+        | NULL|   2|    1|
+        | NULL|   5|    1|
+        |Alice|NULL|    1|
+        |Alice|   2|    1|
+        |  Bob|NULL|    1|
+        |  Bob|   5|    1|
+        +-----+----+-----+
         """
-        jgd = self._jdf.cube(self._jcols(*cols))
+        jgd = self._jdf.cube(self._jcols_ordinal(*cols))
         from pyspark.sql.group import GroupedData
 
         return GroupedData(jgd, self)

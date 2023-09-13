@@ -970,7 +970,7 @@ class SparkConnectPlanner(val sessionHolder: SessionHolder) extends Logging {
 
   private def transformCachedLocalRelation(rel: proto.CachedLocalRelation): LogicalPlan = {
     val blockManager = session.sparkContext.env.blockManager
-    val blockId = CacheId(rel.getUserId, rel.getSessionId, rel.getHash)
+    val blockId = CacheId(sessionHolder.userId, sessionHolder.sessionId, rel.getHash)
     val bytes = blockManager.getLocalBytes(blockId)
     bytes
       .map { blockData =>
@@ -1904,10 +1904,6 @@ class SparkConnectPlanner(val sessionHolder: SessionHolder) extends Logging {
         val alpha = extractDouble(children(1), "alpha")
         val ignoreNA = extractBoolean(children(2), "ignoreNA")
         Some(EWM(children(0), alpha, ignoreNA))
-
-      case "last_non_null" if fun.getArgumentsCount == 1 =>
-        val children = fun.getArgumentsList.asScala.map(transformExpression)
-        Some(LastNonNull(children(0)))
 
       case "null_index" if fun.getArgumentsCount == 1 =>
         val children = fun.getArgumentsList.asScala.map(transformExpression)
