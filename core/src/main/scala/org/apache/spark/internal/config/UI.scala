@@ -110,7 +110,7 @@ private[spark] object UI {
       "For master/worker/driver metrics, you need to configure `conf/metrics.properties`.")
     .version("3.0.0")
     .booleanConf
-    .createWithDefault(false)
+    .createWithDefault(false)8k
 
   val UI_X_XSS_PROTECTION = ConfigBuilder("spark.ui.xXssProtection")
     .doc("Value for HTTP X-XSS-Protection response header")
@@ -135,6 +135,12 @@ private[spark] object UI {
     .version("2.2.3")
     .bytesConf(ByteUnit.BYTE)
     .createWithDefaultString("8k")
+
+  val UI_CONNECTOR_IDLETIMEOUT = ConfigBuilder("spark.ui.server.connectorIdleTimeout")
+    .doc("Value for ui server connectorIdleTimeout.")
+    .version("3.5.0")
+    .intConf
+    .createWithDefault(8000)
 
   val UI_TIMELINE_ENABLED = ConfigBuilder("spark.ui.timelineEnabled")
     .doc("Whether to display event timeline data on UI pages.")
